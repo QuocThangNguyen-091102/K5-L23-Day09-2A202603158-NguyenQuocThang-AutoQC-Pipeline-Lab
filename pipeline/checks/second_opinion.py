@@ -63,10 +63,7 @@ def check_image(ds, stem, rows, cfg):
     so = cfg["second_opinion"]
     conf_min, min_area, fp_conf = so["conf"], so["min_area_px"], so["fp_conf"]
     iou_missing, iou_match, iou_loose = so["iou_missing"], so["iou_match"], so["iou_loose"]
-    size = ds.image_size(stem)
-    if not size:
-        return []
-    W, H = size
+    size = ds.image_size(stem)                    # None: ảnh không mở được -> bỏ phần (a) cần diện tích px, vẫn làm FALSE_POS
     labels = _labels(ds, stem)
     preds = []
     for r in rows:
@@ -79,6 +76,9 @@ def check_image(ds, stem, rows, cfg):
     issues = []
     # (a) dự đoán tin cậy, đủ lớn -> nhãn có thiếu / lỏng / nhầm lớp?
     for c, s, box in preds:
+        if not size:
+            break
+        W, H = size
         if s < conf_min or box[2] * W * box[3] * H < min_area:
             continue
         cands = [(iou_xywh(box, lb), lc, no) for no, lc, lb in labels]

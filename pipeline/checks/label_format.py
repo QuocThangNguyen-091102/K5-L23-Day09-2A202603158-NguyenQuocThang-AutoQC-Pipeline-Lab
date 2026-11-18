@@ -62,8 +62,7 @@ def check_file(ds, stem, cfg):
         dup = next((pno for pno, (pc, pb) in kept if pc == c and iou_xywh(pb, box) > dup_iou), None)
         if dup is not None:
             issues.append(Issue(CHECK, ERROR, "DUP_BOX", stem, f"lặp box dòng {dup} (cùng lớp, IoU > {dup_iou})", no, {"of_line": dup}))
-        else:
-            kept.append((no, (c, box)))
+        kept.append((no, (c, box)))               # mọi dòng hợp lệ (kể cả dòng lặp) là "dòng trước đó" của các dòng sau: A≈B≈C báo cả B và C
         if size:
             W, H = size
             short = min(w * W, h * H)
