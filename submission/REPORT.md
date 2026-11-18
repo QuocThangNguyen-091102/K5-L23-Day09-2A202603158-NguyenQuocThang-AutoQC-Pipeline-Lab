@@ -18,7 +18,7 @@ Số liệu lấy từ `02_error_list_v1` (lỗi trước khi sửa). Mẫu số
 | `DUP_IMAGE_NEAR` | 4 ảnh / 224 | máy (loại ảnh) | phash ≤ 12. Đã mở xem cả 4 cặp, đều là ảnh thu nhỏ hoặc cắt của cùng một ảnh |
 | `BAD_SIZE` / `CORRUPT_IMAGE` | 3 / 2 ảnh | máy (loại ảnh) | cạnh ngắn < 250 px; img_0136 bị cắt cụt, chỉ lộ lỗi khi gọi `load()` |
 | `MISSING_LABEL_FILE` | 6 ảnh / 202 | **người** | máy không bịa nhãn. `needs_label` có trọng số 10 nên luôn đứng đầu hàng đợi, và cả 6 ảnh đã được gán |
-| `BOX_OUT_OF_IMAGE` | 8 dòng | máy (`clip_box`) | cắt về [0,1], giữ nguyên lớp. Vẫn đưa ảnh vào hàng đợi (`FIXED_CLIP_BOX`) vì box tràn 3–6% có thể là box phình to |
+| `BOX_OUT_OF_IMAGE` | 8 dòng | máy (`clip_box`) | cắt về [0,1], giữ nguyên lớp. Vẫn đưa ảnh vào hàng đợi (`FIXED_CLIP_BOX`) vì box tràn 2,3–6% có thể là box phình to |
 | `DUP_BOX` / `BAD_CLASS_ID` / `BOX_ZERO` / `BAD_FORMAT` | 7 / 6 / 4 / 3 dòng | máy (`drop_line`) | dòng vô nghĩa về cú pháp: ID 93, −1, 7, 4; `nan`; thiếu cột; w hoặc h = 0 |
 | `BAD_CLASS_NAME` | 2 (data.yaml) | máy (`rename_classes`) | `Person` và `Bus` viết hoa |
 | `POSSIBLE_MISSING` / `WRONG_CLASS` / `LOOSE_BOX` / `FALSE_POS` | 53 / 18 / 28 / 29 | **người** | chỉ là nghi ngờ của model (yolo26l), nên chỉ cảnh báo |
@@ -42,8 +42,9 @@ Autofix tạo **35 thay đổi** (`03_fixes.csv`, mỗi dòng ghi trước → s
 **Một chỗ calibration đánh lừa: ở `phash_dist=16`, bảng calib trông tốt hơn (NEAR recall 0,83, precision 1,00), nhưng trên raw lại tệ hơn.**
 - `calibrate.py` **không chấm `LEAK_TEST`** vì calib không có ca rò rỉ nào. Ở mức 16, các ca LEAK giả không hiện lên trong bảng.
 - Trên raw, phash=16 loại thêm 9 ảnh. Chỉ **1 cặp trùng thật** (img_0084 là bản cắt của img_0074). **8 ảnh còn lại bị báo nhầm**: 6 ca LEAK_TEST giả (ví dụ img_0013, ảnh bàn laptop, bị coi là trùng test_087, ảnh sân bóng chày) và 2 ca NEAR giả (img_0011, ảnh tennis, bị coi là trùng img_0008, ảnh trượt tuyết). Mình đã mở xem từng cặp.
-- Ở mức 20, raw mất **134/224** ảnh. Riêng calib cũng có 22 ca LEAK giả, nhưng không có trong bảng điểm.
-- Calib chỉ có 6 ca NEAR, mỗi ca chiếm 17% recall. Calib không có LEAK, và lỗi WRONG_CLASS của calib chủ yếu là person→car, trong khi raw nghiêng về car/truck/bus. Không nên tin recall trên calib như recall trên raw.
+- Ở mức 20, raw mất **137/224** ảnh ở bước nhận (134 ảnh bị báo trùng/rò rỉ, cộng 3 ảnh hỏng/sai kích thước). Riêng calib cũng có 22 ca LEAK giả, nhưng không có trong bảng điểm.
+- Calib chỉ có 6 ca NEAR và 6 ca WRONG_CLASS, mỗi ca chiếm khoảng 17% recall. Calib cũng không có ca LEAK nào. Không nên tin recall trên calib như recall trên raw.
+- Tài liệu cho rằng lỗi nhầm lớp trên raw nghiêng về car/truck/bus. Nhưng cờ WRONG_CLASS trên raw lại chủ yếu là nhãn `car` mà model nói `person` (12/18 cờ), 6 cờ còn lại là nhầm giữa car/truck/bus. Nhầm truck/car giữa hai model cùng họ YOLO dễ bị bỏ lọt (xem 4b, ý 3).
 
 ## 4. Cửa chặn và điều pipeline KHÔNG bắt được
 **(a) Gate chặn đúng.** Mình đã chạy:
