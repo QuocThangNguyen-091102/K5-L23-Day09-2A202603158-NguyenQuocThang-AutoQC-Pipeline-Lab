@@ -60,7 +60,42 @@ Kết quả: `REWORK — còn 6 lỗi bắt buộc (MISSING_LABEL_FILE×6)`, **m
 4. **Box lỏng nhẹ.** Chỉ box có IoU < 0,5 so với dự đoán mới bị cờ. Calib cho thấy LOOSE_BOX recall chỉ **1/5** dù box đã phình 1,45–1,58 lần, và 16/24 ảnh LOOSE trên raw chưa được duyệt.
 
 ## 5. Train: raw vs clean (tùy chọn, chấm riêng)
-Chưa chạy. Máy không có GPU, và repo cần được push lên GitHub public trước khi train trên Colab (xem mục 6a). Phần này chấm riêng.
+**Cấu hình (rút gọn, chạy CPU cục bộ, không dùng Colab):**
+```
+python scripts/train_compare.py --variants raw clean --seeds 0 1 --epochs 20 --imgsz 416 --device cpu
+```
+- yolo26n.pt, 20 epoch, batch 16, **imgsz 416** (thay cho 640 vì chạy CPU), seed 0 và 1.
+- Val chung là `gold_val` (40 ảnh), test chung là `data/test` (100 ảnh). Cả 4 lượt có cùng `config_sha1`. Hai lượt `clean` có `manifest_sha1` khớp với `clean_v1` (bản nháp Hold).
+- Số ảnh train: `raw` 224 ảnh, nhưng Ultralytics tự bỏ **11 ảnh** (2 ảnh hỏng và 9 ảnh có dòng nhãn lỗi), nên thực chất chỉ train trên **213** ảnh. Với mỗi ảnh có một dòng lỗi, toàn bộ ảnh bị bỏ. `clean` train trên 202 ảnh.
+
+`submission/results/comparison.md` (sinh bởi `summarize_results.py`):
+
+| biến thể | #ảnh train | số seed | map50 (TB ± độ lệch) | map50_95 (TB ± độ lệch) | precision (TB ± độ lệch) | recall (TB ± độ lệch) |
+|---|---|---|---|---|---|---|
+| raw | 224 | 2 | 0.621 ± 0.004 | 0.415 ± 0.008 | 0.639 ± 0.006 | 0.582 ± 0.013 |
+| clean | 202 | 2 | 0.558 ± 0.102 | 0.361 ± 0.071 | 0.675 ± 0.137 | 0.484 ± 0.051 |
+
+**So với nhiễu:** chênh mAP50 (clean − raw) là **−0,063**. Nhưng độ lệch giữa hai seed của `clean` là **0,102** (seed 0 được 0,631, seed 1 chỉ 0,486), lớn hơn chính mức chênh. Vì vậy **chưa kết luận được** clean tốt hơn hay kém hơn raw. Với 2 seed và 100 ảnh test, không thể nói "clean kém hơn".
+
+**Vì sao nhiễu lớn đến vậy?** Mình kiểm tra và tìm ra nguyên nhân: `best.pt` được chọn theo mAP50-95 trên val chỉ có 40 ảnh, và với **3/4 lượt, epoch tốt nhất trên val lại là epoch 1** (theo `results.csv` của Ultralytics trong `work/train/runs/`, thư mục không commit; tái lập bằng lệnh train ở trên). Ở epoch 1, mô hình pretrained COCO đã đạt val mAP50 khoảng 0,70–0,72; sau đó điểm tụt rồi mới hồi lại. Chỉ riêng clean seed 1 chọn epoch 10. Như vậy bảng chính thức thực chất so 3 mô hình mới fine-tune **1 epoch** với 1 mô hình 10 epoch, chứ chưa đo được tác động của dữ liệu.
+
+Mình đánh giá thêm `last.pt` (đủ 20 epoch) trên cùng tập test bằng `scripts/extra_eval.py`, kết quả lưu ở `submission/results/extra_eval.json`. Dùng `best.pt` thì con số khớp chính xác với bảng chính thức:
+
+| mAP50 (TB ± độ lệch, 2 seed) | raw | clean | clean − raw |
+|---|---|---|---|
+| `last.pt`, test 100 ảnh | 0,520 ± 0,008 | 0,528 ± 0,013 | **+0,008** |
+| `last.pt`, test bỏ 5 ảnh trùng raw (95 ảnh) | 0,503 | 0,519 | +0,016 |
+| `last.pt` mAP50-95, test 100 ảnh | 0,351 | 0,370 | +0,019 |
+
+Sau đủ 20 epoch, clean nhỉnh hơn một chút, nhưng mức chênh vẫn cỡ độ lệch giữa các seed (0,008–0,013). **Kết luận vẫn là nằm trong nhiễu.**
+
+**Giả thuyết và cách kiểm:**
+1. **Rò rỉ test làm điểm raw bị thổi phồng.** `raw` chứa 5 ảnh trùng test (img_0049, 0101, 0167, 0174, 0221). Khi bỏ 5 ảnh test đó, `last.pt` của raw giảm 0,017 còn clean chỉ giảm 0,009, tức có dấu hiệu nhỏ đúng chiều. Kiểm chứng: so điểm trên test 95 ảnh với nhiều seed hơn.
+2. **Chọn checkpoint trên val 40 ảnh là nguồn nhiễu chính, lấn át hiệu ứng của nhãn.** Kiểm chứng: báo cáo cả `last.pt`, tăng lên ≥ 5 seed, hoặc dùng val lớn hơn.
+3. **`clean` vẫn còn nhãn máy.** 122/202 ảnh chưa được người duyệt, còn box thừa (img_0177…) và box lỏng (16 ảnh). `clean` cũng ít ảnh hơn (202 so với 213). Kiểm chứng: train thêm biến thể `oracle` (cùng ảnh với clean, nhãn người) để biết trần, và `auto` (không có người duyệt) để tách đóng góp của 80 ảnh được duyệt.
+4. **imgsz 416 và chỉ 20 epoch trên CPU.** Fine-tune 200 ảnh từ trọng số COCO dễ làm giảm điểm so với epoch 1. Kiểm chứng: chạy lại trên Colab với imgsz 640 theo cấu hình chuẩn.
+
+**Việc tiếp theo:** chạy ≥ 5 seed với imgsz 640 trên GPU, báo cáo cả best và last, thêm biến thể `oracle`/`auto`, và sửa cách xếp hàng đợi (mục 6a) trước khi train lại.
 
 ## 6. Quyết định và ghi chú AI
 **(a) Quyết định: HOLD.** Không còn lỗi bắt buộc, nhưng 18,8% ảnh còn cảnh báo chưa duyệt, cao hơn ngưỡng 10%. Bản `clean_v1` chỉ dùng để thử nghiệm.
@@ -73,7 +108,9 @@ Ngoài ra nên xoá một trong hai ảnh img_0074/img_0084. Không được h�
 
 **(b) Ghi chú AI.** Có dùng AI (Claude Code) để viết 4 module.
 - **Prompt chính:** dán docstring của từng stub cùng file test tương ứng. Yêu cầu: chỉ sửa thư mục `ds`, không viết cứng ngưỡng, không đọc `review_reference` hay đáp án calib.
-- **Cách kiểm:** chạy `pytest` từng file rồi toàn bộ (79/79). Tự thử thêm 3 ca ngoài test trên bản sao tạm: một dòng vừa tràn vừa lặp, dòng trống giữa file, file nhãn mồ côi. Kiểm tra idempotent. So bảng calib ở cấu hình khởi đầu với ví dụ trong `docs/CALIBRATION.md`: khớp từng số (0,56/0,83, 0,50/1,00).
+- **Cách kiểm:** chạy `pytest` từng file rồi toàn bộ (79/79 test của đề). Nhờ thêm một agent review độc lập, không biết trước kết luận của mình: agent này tìm ra ca DUP_BOX dạng chuỗi (A≈B≈C chỉ báo B) và mình đã sửa. Nhờ thêm một agent đối chiếu từng số trong báo cáo với `reports/`, nhờ đó sửa được 3 số liệu sai. Tự thử thêm 3 ca ngoài test trên bản sao tạm: một dòng vừa tràn vừa lặp, dòng trống giữa file, file nhãn mồ côi. Kiểm tra idempotent. So bảng calib ở cấu hình khởi đầu với ví dụ trong `docs/CALIBRATION.md`: khớp từng số (0,56/0,83, 0,50/1,00).
 - **Lần AI sai:** bản autofix đầu tiên bỏ qua lỗi dòng của file nhãn không có ảnh. Test vẫn xanh, nhưng lỗi bắt buộc đó sẽ còn mãi và pipeline Rework vĩnh viễn. Mình phát hiện khi tự thử với file mồ côi và đã sửa. Ngoài ra, bản gate đầu tiên so ngưỡng bằng tỉ lệ đã làm tròn 4 chữ số (0,09996 sẽ thành Hold), nên đã đổi sang so bằng giá trị thô.
+
+*(Thưởng +3, check mới)* `pipeline/checks/box_aspect.py` cảnh báo `BOX_ODD_ASPECT` khi box có tỉ lệ khung hình theo pixel > 15. Check này bắt box dạng "que diêm" mà BOX_ZERO và BOX_TINY bỏ qua. Có 5 test trong `tests/test_box_aspect.py` (tổng cộng 84/84 test xanh). Chạy độc lập bằng `python -m pipeline.checks.box_aspect --src work/run/ds`, vì `QC_CHECKS` bị ghim sha1 nên không đăng ký vào pipeline được. Kết quả trên raw: 0 cờ ở ngưỡng 15. Thử hạ xuống 8 thì có 2 cờ (img_0042 dòng 5, img_0124 dòng 6), nhưng mở xem thì cả hai là vật thật bị cắt ở mép ảnh, tức báo động giả. Đây là lý do check chỉ nên cảnh báo, và ngưỡng 15 hợp lý hơn 8.
 
 *(Thưởng CVAT: không làm vì không có máy chủ CVAT.)*
